@@ -1,0 +1,23 @@
+{
+  "name": "@sentia/client",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vue-tsc --noEmit && vite build"
+  },
+  "dependencies": {
+    "vue": "^3.5.13",
+    "quasar": "^2.18.0",
+    "@quasar/extras": "^1.16.17",
+    "pinia": "^3.0.1",
+    "vue-router": "^4.5.0",
+    "axios": "^1.8.4"
+  },
+  "devDependencies": {
+    "vite": "^6.2.0",
+    "@vitejs/plugin-vue": "^5.2.3",
+    "typescript": "^5.7.3",
+    "vue-tsc": "^2.2.8"
+  }
+}

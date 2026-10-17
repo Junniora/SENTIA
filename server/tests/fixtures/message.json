@@ -1,0 +1,36 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "changes": [
+        {
+          "field": "messages",
+          "value": {
+            "metadata": {
+              "phone_number_id": "123"
+            },
+            "contacts": [
+              {
+                "wa_id": "5215551234567",
+                "profile": {
+                  "name": "Contacto de prueba"
+                }
+              }
+            ],
+            "messages": [
+              {
+                "id": "wamid.local.test",
+                "from": "5215551234567",
+                "timestamp": "1700000000",
+                "type": "text",
+                "text": {
+                  "body": "Necesito ayuda"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

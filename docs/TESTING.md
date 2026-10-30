@@ -1,40 +1,66 @@
-# Pruebas y resultados · 16 de octubre de 2026
+# Pruebas · 29 de octubre de 2026
 
-Ejecutado en Windows, Node 24.19.0, npm 11.17.0:
+## Validación posterior del chat web
 
-| Verificación | Resultado |
+Backend y frontend compilan. Ejecutando RUN_WEB_CHAT_DB_TESTS=1, la suite termina con **30 aprobadas, 0 fallos y 2 omitidas** (integraciones antiguas WhatsApp). La nueva integración usa PostgreSQL real y Gemini simulado, limpiando solo sus registros. Las llamadas reales pequeñas al chat público y al navegador devolvieron “SENTIA web conectado correctamente.” y “Chat web verificado.”. Se comprobó reintento idempotente, vistas desktop/móvil, modo oscuro y recarga del historial. No se llamó a Meta. Detalles y limitación EPERM de generación de Prisma: [WEB_CHAT.md](WEB_CHAT.md).
+
+Para repetir la prueba web contra la base local configurada, con las migraciones aplicadas:
+
+```powershell
+$env:RUN_WEB_CHAT_DB_TESTS='1'
+npm.cmd test
+Remove-Item Env:RUN_WEB_CHAT_DB_TESTS
+```
+
+Los resultados siguientes corresponden a la fase anterior; no sustituyen la validación web posterior.
+
+Resultados de esta sesión:
+
+| Comprobación | Resultado |
 |---|---|
-| Instalación npm | Correcta; package-lock.json generado |
-| Prisma generate | Correcto, Prisma 6.19.3 |
-| Migración SQL desde esquema vacío | Generada con prisma migrate diff |
-| Compilación backend TypeScript | Correcta |
-| Frontend vue-tsc + Vite | Correcta, 98 módulos |
-| Pruebas locales | 8 aprobadas |
-| Arranque Express y peticiones HTTP | Correcto dentro de las pruebas |
-| Variables inválidas | Rechazadas |
-| HMAC válido, cuerpo alterado, firma incompleta | Resultados esperados |
-| Challenge GET, token incorrecto | 200 y 403 |
-| Rutas sin sesión y JWT inválido | 401 |
-| Evento firmado sin mensajes | 200 sin acceso a datos |
-| Fixture Meta y filtro de número | Correctos |
-| Validación de tickets | Rechaza estados y entradas inválidos |
-| Salud sin PostgreSQL | 503, database:down; no se considera conexión exitosa |
-| npm audit | 3 avisos altos en prisma / @prisma/config / deepmerge-ts |
+| Instalación de dependencias y SDK oficial | Correcta |
+| Prisma generate | Correcto, 6.19.3 |
+| Prisma validate | Correcto, URL ficticia sin conectar |
+| Backend TypeScript | Correcto |
+| Frontend vue-tsc + Vite | Correcto; requirió permisos ampliados por lectura de esbuild |
+| Pruebas locales HTTP y unitarias | 25 aprobadas |
+| Integraciones PostgreSQL | 2 omitidas (optativas) |
+| Migración nueva aplicada | No: no hay PostgreSQL disponible |
+| Gemini y Meta reales | No se hicieron llamadas |
+| Navegador completo | Pendiente |
+| npm audit | 5 avisos altos y 1 moderado |
 
-La auditoría identifica GHSA-ggr8-5vv4-36mx (agotamiento de pila al fusionar grafos recursivos). La corrección propuesta por npm cambia Prisma a versión mayor; queda pendiente evaluar esa migración antes de producción. No se ejecutó audit fix --force.
+La suite usa mocks del SDK Gemini y cliente HTTP Meta: comprueba mapeo de roles e instrucciones, cuotas, autenticación, HTTP, respuestas vacías/bloqueadas, errores de conexión, contexto acotado, persistencia antes del envío, reanudación de respuestas guardadas, control de propiedad, resultados inciertos y ventana de atención. Se conservan las pruebas HMAC, protección de rutas y tickets. /health devolvió 503 al no disponer de PostgreSQL; no se considera una conexión exitosa.
 
-Limitaciones: Docker no está instalado. No se aplicaron migraciones a una instancia PostgreSQL ni se verificaron login real, persistencia, tickets o deduplicación en base de datos. No hay credenciales Meta, conexión real, ngrok ni prueba visual en navegador. La comunicación frontend/backend está implementada mediante Axios y proxy, pero no se validó de extremo a extremo en navegador.
+Ejecuta desde raíz, cada comando por separado:
 
-La instalación, generación Prisma y pruebas necesitaron permisos fuera del sandbox por restricciones de red, lectura de esbuild y userInfo de tsx. Las repeticiones autorizadas terminaron correctamente.
+```powershell
+npm.cmd run db:generate
+npm.cmd test
+npm.cmd run build
+```
 
-## Repetir pruebas
-Desde raíz: npm.cmd run db:generate; npm.cmd test; npm.cmd run build (cada comando por separado).
+## Integración PostgreSQL aislada (pendiente)
 
-## Integración PostgreSQL preparada, pendiente de ejecutar
-Usa una base aislada, configura server/.env con DATABASE_URL apuntando a ella y un WHATSAPP_APP_SECRET de prueba. Aplica npm.cmd run db:migrate. En PowerShell:
+Crea una base dedicada cuyo nombre contenga test, sin datos reales. Aplica ambas migraciones a esa base. No uses producción, una base compartida con un trabajador activo ni datos que deban conservarse. Los tests no aplican ni resetean migraciones.
 
-    $env:RUN_DB_TESTS='1'
-    npm.cmd test
-    Remove-Item Env:RUN_DB_TESTS
+```powershell
+$env:TEST_DATABASE_URL='postgresql://usuario:clave@127.0.0.1:5432/sentia_test'
+$env:DATABASE_URL=$env:TEST_DATABASE_URL
+npm.cmd run db:migrate
+$env:RUN_DB_TESTS='1'
+npm.cmd test
+Remove-Item Env:RUN_DB_TESTS
+Remove-Item Env:TEST_DATABASE_URL
+Remove-Item Env:DATABASE_URL
+```
 
-La prueba optativa crea su propio administrador, contacta al webhook por HTTP dos veces, comprueba unicidad de mensaje y conversación, autentica, crea y resuelve un ticket y comprueba rechazo por rol AGENT. Limpia exclusivamente sus propios registros. No debe ejecutarse sobre producción. El esquema y migraciones no se aplican automáticamente desde los tests.
+Las dos suites requieren TEST_DATABASE_URL y rechazan nombres que no contienen test. Se ejecutan con proveedores simulados y no arrancan el trabajador automático. Crean y limpian únicamente sus registros de prueba. La base debe estar aislada y sin tareas ajenas porque se comprueba la selección real de la cola.
+
+La suite existente comprueba login, permisos, recepción/deduplicación y tickets. La nueva comprueba inserción concurrente duplicada, unicidad de tarea, orden de claims, recuperación de leases y fencing, contexto guardado, salida IA, estados fuera de orden, correlación tras envío incierto, medios y respuesta API utilizada por el panel. Preparada en código, no ejecutada aquí.
+
+## Auditoría
+
+Se consultó npm audit sin aplicar correcciones automáticas. Los avisos afectan a Prisma/@prisma/config/deepmerge-ts, body-parser, Zod y Vite. Prisma y Zod requieren evaluar cambios mayores. No se ejecutó audit fix --force. Resolver y repetir la auditoría antes de producción.
+
+La prueba real autorizada y las limitaciones se describen en [AGENT_PHASE1.md](AGENT_PHASE1.md).

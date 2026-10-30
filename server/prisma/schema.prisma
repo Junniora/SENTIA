@@ -49,17 +49,45 @@ model Conversation {
  contactId String
  contact Contact @relation(fields: [contactId], references: [id])
  status ConversationStatus @default(OPEN)
+ channel String @default("WHATSAPP")
+ webSession WebSession?
  createdAt DateTime @default(now())
  updatedAt DateTime @updatedAt
  messages Message[]
  tickets Ticket[]
  @@index([contactId, status])
+ @@index([channel, updatedAt])
+}
+
+model WebSession {
+ id String @id @default(cuid())
+ tokenHash String @unique
+ conversationId String @unique
+ conversation Conversation @relation(fields: [conversationId], references: [id])
+ expiresAt DateTime
+ createdAt DateTime @default(now())
+ @@index([expiresAt])
+}
+
+model PublicRateBucket {
+ key String @id
+ hits Int @default(1)
+ expiresAt DateTime
+ @@index([expiresAt])
 }
 model Message {
  id String @id @default(cuid())
  conversationId String
  conversation Conversation @relation(fields: [conversationId], references: [id])
  externalMessageId String? @unique
+ source String @default("HUMAN")
+ deliveryStatus String @default("UNKNOWN")
+ deliveryError String?
+ statusAt DateTime?
+ mediaId String?
+ mimeType String?
+ replyToId String? @unique
+ job ReplyJob?
  direction Direction
  content String
  messageType String
@@ -81,4 +109,21 @@ model Ticket {
  @@index([status, createdAt])
  @@index([contactId])
  @@index([conversationId])
+}
+
+model ReplyJob {
+ id String @id @default(cuid())
+ messageId String @unique
+ message Message @relation(fields: [messageId], references: [id])
+ conversationId String
+ sequence BigInt @unique @default(autoincrement())
+ state String @default("PENDING")
+ attempts Int @default(0)
+ availableAt DateTime @default(now())
+ leaseUntil DateTime?
+ errorCode String?
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ @@index([state, availableAt])
+ @@index([conversationId, sequence])
 }

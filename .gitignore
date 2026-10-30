@@ -1,7 +1,10 @@
 node_modules/
+.npm-cache/
 dist/
 .env
 .env.*
 !.env.example
 *.log
 coverage/
+
+.local-backups/

@@ -2,7 +2,17 @@
 
 SENTIA es un sistema de asistencia y gestión de atención de la **Brigada 105**. Su objetivo es centralizar contactos, consultar conversaciones de WhatsApp y dar seguimiento a solicitudes mediante tickets desde un panel administrativo.
 
-Esta primera versión incluye autenticación, indicadores obtenidos de PostgreSQL, historial de mensajes y gestión inicial de tickets. La recepción por WhatsApp requiere configurar una cuenta de Meta. La arquitectura está preparada para incorporar inteligencia artificial en etapas posteriores; actualmente no genera respuestas automáticas.
+Esta primera versión incluye autenticación, indicadores obtenidos de PostgreSQL, historial de mensajes y gestión inicial de tickets. La recepción por WhatsApp requiere configurar una cuenta de Meta. La fase 1 incorpora un agente Gemini y envío de respuestas por WhatsApp mediante una cola persistente en PostgreSQL. Está desactivado por defecto y requiere configuración y validación real autorizada. Consulta [el informe de fase 1](docs/AGENT_PHASE1.md).
+
+## Tickets desde la IA
+
+En `/chat` puedes describir un problema y pedir **“Crea un ticket”**. La IA recopila la información que falte y el backend guarda el ticket real para revisarlo en el panel. La conversación muestra su referencia y estado. Ver [funcionamiento y pruebas](docs/AI_TICKETS.md).
+
+## Chat web público · canal principal
+
+Abre **http://localhost:5173/chat** para conversar con SENTIA sin cuenta administrativa ni configuración de WhatsApp. El chat utiliza Gemini, conserva su historial en PostgreSQL y aparece en el panel bajo el filtro **Web Chat**. Mantén `AI_AUTO_REPLY=false`: el control del canal web es `WEB_CHAT_AI_ENABLED`, activado por defecto cuando `AI_ENABLED` y la clave están disponibles.
+
+Consulta [configuración, seguridad y pruebas del chat web](docs/WEB_CHAT.md). La migración aditiva del canal web ya se aplicó a PostgreSQL 18 local y se comprobó una conversación real con Gemini desde el navegador.
 
 ## Qué puedes hacer
 
@@ -10,7 +20,7 @@ Esta primera versión incluye autenticación, indicadores obtenidos de PostgreSQ
 |---|---|
 | Inicio de sesión | Acceder con una cuenta de administrador |
 | Resumen | Consultar contactos, conversaciones y tickets abiertos o resueltos |
-| Conversaciones | Buscar por nombre o teléfono y consultar el historial de mensajes |
+| Conversaciones | Filtrar Web Chat/WhatsApp, buscar y consultar el historial de cliente e IA |
 | Contactos | Consultar teléfono, fecha de registro y detalle |
 | Tickets | Crear solicitudes y actualizar su estado |
 | Configuración | Revisar disponibilidad de la API, configuración de WhatsApp y cambiar el tema |
@@ -20,16 +30,18 @@ Esta primera versión incluye autenticación, indicadores obtenidos de PostgreSQ
 - **Frontend:** Vue 3, Composition API, TypeScript, Quasar, Pinia, Vue Router y Axios.
 - **Backend:** Node.js, Express, TypeScript, Prisma, Zod, JWT y bcrypt.
 - **Datos:** PostgreSQL 16, con migraciones Prisma.
-- **Integración:** webhooks GET/POST de WhatsApp Cloud API, con validación de firma y prevención de mensajes duplicados.
+- **Integración:** webhooks GET/POST de WhatsApp Cloud API, con validación de firma, prevención de duplicados, envío de texto y eventos de entrega. Gemini utiliza el SDK oficial @google/genai.
 
 ## Requisitos
 
 - Node.js 22 o 24 y npm.
-- PostgreSQL 16 instalado localmente **o** Docker con Compose.
+- PostgreSQL 18 instalado localmente **o** PostgreSQL 16 con Docker Compose.
 - PowerShell para los comandos de esta guía.
 - pgAdmin es opcional: permite administrar PostgreSQL, pero no sustituye al servidor.
 
 Ejecuta los comandos desde la carpeta raíz del proyecto, donde está package.json. Los archivos .env contienen credenciales locales y estón excluidos de Git. Nunca copies sus valores reales al README ni a un repositorio.
+
+> **Instalaci?n local con PostgreSQL 18:** consulta [la configuraci?n verificada y soluci?n de P1012](docs/LOCAL_POSTGRESQL18.md). El backend utiliza `server/.env`; `.env.example` es solo una plantilla.
 
 ## Inicializar por primera vez
 
@@ -119,15 +131,15 @@ Mantón ambas terminales abiertas. Para detener cada proceso pulsa **Ctrl + C** 
 
 1. **Inicia sesión.** No existe registro público de usuarios. El inicializador crea la primera cuenta ADMIN; el rol AGENT está reservado para una etapa posterior.
 2. **Consulta el resumen.** Los indicadores proceden de la base de datos. Una instalación nueva muestra ceros porque todavía no tiene registros.
-3. **Recibe contactos y conversaciones.** Al configurar WhatsApp y recibir un mensaje válido, el backend registra el contacto, una conversación y el mensaje. Esta versión no incluye creación manual de contactos desde el panel.
+3. **Recibe contactos y conversaciones.** Al configurar WhatsApp y recibir un mensaje válido, el backend registra el contacto, una conversación y el mensaje. También se crean contactos al iniciar una conversación desde el chat web. Esta versión no incluye creación manual de contactos desde el panel.
 4. **Busca una conversación.** En Conversaciones, escribe el nombre o teléfono, pulsa Enter o el icono de búsqueda y abre Ver detalle. Puedes cargar mensajes anteriores cuando el historial lo permita.
 5. **Consulta contactos.** Abre Contactos para ver sus datos y fecha de registro.
-6. **Crea un ticket.** En Tickets, pulsa Nuevo ticket, selecciona un contacto existente, completa título y descripción, elige prioridad y guarda. Si no hay contactos, primero debes recibir un mensaje mediante la integración.
+6. **Crea un ticket.** En Tickets, pulsa Nuevo ticket, selecciona un contacto existente, completa título y descripción, elige prioridad y guarda. Si no hay contactos, puedes iniciar una conversación desde /chat; también se crean contactos mediante WhatsApp si se configura.
 7. **Da seguimiento.** Actualiza el estado del ticket a OPEN, IN_PROGRESS o RESOLVED desde su selector. Las prioridades disponibles son LOW, MEDIUM y HIGH.
 8. **Ajusta la apariencia.** Usa el botón de tema de la barra superior o el interruptor de Configuración. La preferencia se conserva en el navegador.
 9. **Cierra sesión** desde la barra lateral cuando termines.
 
-El selector de contactos de nuevos tickets carga los primeros 50 registros; un selector remoto para volúmenes mayores queda pendiente. La vista de mensajes diferencia entradas y salidas, pero esta etapa no permite enviar mensajes desde el panel.
+El selector de contactos de nuevos tickets carga los primeros 50 registros; un selector remoto para volúmenes mayores queda pendiente. La vista de mensajes diferencia entradas, salidas IA y estados de envío; se actualiza mientras está abierta. No hay envío manual desde el panel.
 
 ## Configuración del entorno
 
@@ -139,6 +151,8 @@ El selector de contactos de nuevos tickets carga los primeros 50 registros; un s
 | server/.env | PORT, CORS_ORIGIN | Puerto de API (3000) y origen permitido (http://localhost:5173) |
 | server/.env | ADMIN_NAME, ADMIN_EMAIL, ADMIN_PASSWORD | Creación inicial del administrador |
 | server/.env | WHATSAPP_VERIFY_TOKEN, WHATSAPP_APP_SECRET, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN | Configuración de Meta |
+| server/.env | GEMINI_API_KEY, GEMINI_MODEL, AI_ENABLED, AI_AUTO_REPLY | Configuración y habilitación del agente; desactivado por defecto |
+| server/.env | WHATSAPP_GRAPH_VERSION | Versión de Graph soportada por tu aplicación |
 | client/.env, opcional | VITE_API_URL | Dirección de API cuando el cliente se sirve por separado |
 
 En desarrollo, Vite redirige /api y /health al backend en http://localhost:3000; client/.env no es necesario para ese caso. Si cambias el puerto del backend, ajusta tambión el proxy en client/vite.config.ts.
@@ -149,7 +163,7 @@ ADMIN_* solo se utiliza al crear la cuenta; editar ADMIN_PASSWORD después no mo
 
 El panel funciona aunque las variables de Meta estón vacías. Para recibir mensajes reales necesitas una aplicación de Meta, un número habilitado y un callback HTTPS; en desarrollo puedes usar ngrok.
 
-Sigue [WHATSAPP_SETUP.md](docs/WHATSAPP_SETUP.md). Los endpoints son GET /webhooks/whatsapp para verificación y POST /webhooks/whatsapp para recepción. Tener credenciales configuradas no acredita una conexión real: el panel mantiene el estado de conexión como no verificado. No se implementan envíos, respuestas automáticas con IA ni descarga de multimedia.
+Sigue [WHATSAPP_SETUP.md](docs/WHATSAPP_SETUP.md). Los endpoints son GET /webhooks/whatsapp para verificación y POST /webhooks/whatsapp para recepción. Tener credenciales configuradas no acredita una conexión real: el panel mantiene el estado de conexión como no verificado. El envío de texto y las respuestas Gemini están implementados con cola persistente; su validación real sigue pendiente. La descarga autenticada de imágenes está preparada, pero aún no se utiliza en generación multimodal. Fuera de la ventana de 24 horas no se envía texto; las plantillas no están implementadas.
 
 ## Comandos de mantenimiento
 
@@ -208,6 +222,8 @@ sentia/
 
 ## Documentación y alcance actual
 
+- [Chat web público: uso, configuración y validación](docs/WEB_CHAT.md).
+- [Fase 1: implementación, configuración y validación pendiente](docs/AGENT_PHASE1.md).
 - [Arquitectura](docs/ARCHITECTURE.md).
 - [Base de datos](docs/DATABASE.md).
 - [Endpoints de API](docs/API.md).
@@ -215,6 +231,6 @@ sentia/
 - [Pruebas y limitaciones](docs/TESTING.md).
 - [Avances de implementación](docs/PROGRESS.md).
 
-En la instalación local se comprobó aplicación de migraciones, conexión PostgreSQL, login de administrador, consulta del dashboard y respuesta del proxy frontend/API. La compilación y ocho pruebas locales tambión pasaron. La suite optativa de persistencia y deduplicación, la integración real con Meta y la revisión completa en navegador siguen pendientes.
+En esta sesión se comprobaron generación y validación del esquema Prisma, compilación de backend/frontend y 25 pruebas locales. Dos integraciones PostgreSQL se omitieron por falta de servidor. No se aplicó la migración nueva ni se probaron Gemini/Meta reales o la interfaz completa en navegador. Los resultados anteriores no acreditan la nueva fase.
 
-Antes de producción queda pendiente resolver los avisos de dependencias Prisma documentados en TESTING.md. Las siguientes etapas contemplan administración de usuarios, envío de mensajes, multimedia y conexión de un proveedor de IA.
+Antes de producción queda pendiente resolver los avisos de dependencias Prisma documentados en TESTING.md. Las siguientes etapas contemplan administración de usuarios, envío manual, visión multimodal, conocimiento y cotizaciones. El informe [AGENT_PHASE1.md](docs/AGENT_PHASE1.md) detalla los archivos, variables, pruebas y limitaciones de la integración actual.

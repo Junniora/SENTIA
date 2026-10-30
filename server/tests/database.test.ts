@@ -1,6 +1,10 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import {randomUUID,createHmac} from 'node:crypto';
 // Opt-in: migrations must already be applied to an isolated test database.
 test('PostgreSQL: login, roles, incoming message deduplication and tickets',{skip:process.env.RUN_DB_TESTS!=='1'},async()=>{
+ const url=process.env.TEST_DATABASE_URL;
+ assert.ok(url&&/test/i.test(new URL(url).pathname),'TEST_DATABASE_URL must identify an isolated test database');
+ process.env.DATABASE_URL=url;process.env.JWT_SECRET='isolated-database-test-secret-minimum-32';
+ process.env.WHATSAPP_APP_SECRET='isolated-test-app-secret';process.env.AI_ENABLED='false';process.env.AI_AUTO_REPLY='false';
  const {prisma}=await import('../src/lib/prisma.js');const {app}=await import('../src/app.js');const bcrypt=await import('bcrypt');const {env}=await import('../src/config/env.js');const tag=randomUUID();const phone='5299'+Date.now();const email=tag+'@test.invalid';const password=randomUUID();const server=app.listen(0,'127.0.0.1');await new Promise<void>(r=>server.once('listening',r));const addr=server.address();if(!addr||typeof addr==='string')throw Error();const base='http://127.0.0.1:'+addr.port;
  try{
  const user=await prisma.user.create({data:{name:'Integration test',email,passwordHash:await bcrypt.hash(password,12),role:'ADMIN'}});

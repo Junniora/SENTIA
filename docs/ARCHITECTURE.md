@@ -1,10 +1,19 @@
 # Arquitectura
-El navegador utiliza Vue 3 con Composition API, Quasar, Pinia, Vue Router y Axios. El router verifica la sesión antes de mostrar el panel; el backend aplica JWT y consulta el usuario y rol vigentes en PostgreSQL para cada petición protegida. El token expira en 8 horas y se guarda en sessionStorage; en una fase de producción evaluar cookies HttpOnly, CSP y revocación de sesiones.
 
-Express separa configuración, middleware, controladores, rutas, validadores y servicios. Zod valida entorno y entradas; Prisma encapsula acceso a PostgreSQL. Los errores públicos no incluyen trazas, SQL, contraseñas ni cuerpos de mensajes. Los logs solo incluyen método, ruta, estado y duración. CORS admite un origen configurado. El login limita intentos por IP en memoria; un despliegue con réplicas necesita un limitador compartido y configuración explícita de proxy confiable.
+El canal principal ahora es el chat web público /chat. Reutiliza GeminiProvider y buildContext; sus sesiones se autentican mediante tokens aleatorios almacenados como hashes. PostgreSQL conserva Conversation/Message y ReplyJob. La generación web es síncrona con timeout, límites persistentes y leases; las tareas WEB no pasan al trabajador de WhatsApp. La administración sigue protegida por JWT. Ver [arquitectura y validación web](WEB_CHAT.md).
 
-El webhook utiliza express.raw antes del parser JSON para conservar los bytes originales. Solo procesa después de verificar HMAC. Una transacción por mensaje y un bloqueo advisory por teléfono serializan la selección de conversación; un índice único evita duplicados. Un error persistente devuelve 5xx para que Meta pueda reintentar; no se confirma antes de persistir. No hay cola durable en esta fase; evaluar una cola para grandes lotes y observabilidad operativa antes de producción.
+Vue 3/Quasar consulta la API protegida por JWT. La sesión permanece en sessionStorage; Express verifica el usuario y el rol vigente en cada petición. Se conservan Pinia, Axios, modo claro/oscuro y rutas existentes.
 
-Los eventos sin mensajes se confirman sin crear registros. Los mensajes no textuales guardan el tipo, sin descargar medios. La conexión no se declara verificada por tener variables. No existe cliente de envío en esta etapa.
+El webhook conserva bytes originales y valida HMAC antes de interpretar eventos. Cada mensaje entra en una transacción PostgreSQL que identifica contacto y conversación, evita duplicados y, cuando el agente está activo, crea una ReplyJob única. El ACK no espera a proveedores.
 
-La interfaz AiProvider en server/src/services/ai/index.ts define el contrato de un futuro proveedor. Su implementación se inyectaría en un servicio de negocio separado; hoy no se invoca ningún modelo. Productos, cotizaciones y medios podrán agregarse mediante modelos y migraciones nuevas.
+El trabajador interno consulta la cola durable con leases y SKIP LOCKED. Procesa tareas por secuencia de recepción, sin adelantar tareas previas activas de una misma conversación. Contexto limitado → AiProvider → Gemini → respuesta persistida → Meta Cloud API → resultado persistido. Los errores no se propagan a otros módulos administrativos.
+
+AiProvider no depende de WhatsApp. Gemini utiliza @google/genai con instrucciones de sistema, timeout y un intento SDK por generación; la cola controla hasta tres intentos. No hay herramientas administrativas accesibles al modelo.
+
+Message distingue origen, dirección, entrega y medios. Los eventos de Meta actualizan estados sin regresiones de entrega. Un envío incierto no se repite automáticamente: se espera correlación por callback o revisión humana. No se promete exactamente una entrega a través de sistemas externos.
+
+Seguridad conservada: Zod, JWT, bcrypt, permisos ADMIN, límite de login por IP, tamaños HTTP limitados y errores sin cuerpos/credenciales. Los timeouts externos son menores que el lease. Se validan destinatarios y ventana de 24 horas; no hay envío de plantillas en esta fase. La descarga preparada de imágenes valida host HTTPS, formato y tamaño y nunca persiste URLs temporales.
+
+Al desactivar el agente no se pierde la administración ni los mensajes. Las tareas anteriores quedan pausadas y se reevalúan al reactivar. No se generan tareas retroactivas para mensajes recibidos con el agente inactivo.
+
+Consulta [Fase 1](AGENT_PHASE1.md) para configuración, archivos, recuperación, pruebas y límites. La arquitectura está implementada; su persistencia y concurrencia reales siguen pendientes de validación PostgreSQL. En producción quedan pendientes auditoría, observabilidad, limitador compartido, CSP y evaluación de cookies HttpOnly/revocación.
